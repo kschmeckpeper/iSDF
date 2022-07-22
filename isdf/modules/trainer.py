@@ -147,7 +147,7 @@ class Trainer():
         # require dataset format, depth scale and camera params
         self.dataset_format = self.config["dataset"]["format"]
         self.live = False
-        if self.dataset_format in ["arkit", "realsense"]:
+        if self.dataset_format in ["arkit", "realsense", "thor"]:
             self.live = True
         self.inv_depth_scale = 1. / self.config["dataset"]["depth_scale"]
         self.distortion_coeffs = []
@@ -462,22 +462,30 @@ class Trainer():
             ims_file = None
             self.traj_file = None
             camera_matrix = np.array([[self.fx, 0.0, self.cx], [0.0, self.fy, self.cy], [0.0, 0.0, 1.0]])
+        elif self.dataset_format == "thor":
+            dataset_class = None
+            col_ext = None
+            self.up = np.array([0., 0., 1.])
+            ims_file = None
+            self.traj_file = None
+            camera_matrix = np.array([[self.fx, 0.0, self.cx], [0.0, self.fy, self.cy], [0.0, 0.0, 1.0]])
         elif self.dataset_format == "robopen":
             dataset_class = dataset.ReplicaDataset
             col_ext = ".png"
             self.up = np.array([0., 0., 1.])
             ims_file = self.ims_file
 
-        self.scene_dataset = dataset_class(
-            ims_file,
-            traj_file=self.traj_file,
-            rgb_transform=rgb_transform,
-            depth_transform=depth_transform,
-            col_ext=col_ext,
-            noisy_depth=noisy_depth,
-            distortion_coeffs=self.distortion_coeffs,
-            camera_matrix=camera_matrix,
-        )
+        if dataset_class is not None:
+            self.scene_dataset = dataset_class(
+                ims_file,
+                traj_file=self.traj_file,
+                rgb_transform=rgb_transform,
+                depth_transform=depth_transform,
+                col_ext=col_ext,
+                noisy_depth=noisy_depth,
+                distortion_coeffs=self.distortion_coeffs,
+                camera_matrix=camera_matrix,
+            )
 
         if self.incremental is False:
             if "im_indices" not in self.config["dataset"]:
@@ -916,7 +924,7 @@ class Trainer():
         scene.show()
 
     def step(self):
-        start, end = start_timing()
+        #start, end = start_timing()
 
         depth_batch = self.frames.depth_batch
         T_WC_batch = self.frames.T_WC_batch
@@ -975,11 +983,11 @@ class Trainer():
             # cv2.imshow("loss_approx_viz", loss_approx_viz)
             # cv2.waitKey(1)
 
-        step_time = end_timing(start, end)
-        time_s = step_time / 1000.
-        self.tot_step_time += (1 / self.frac_time_perception) * time_s
+        #step_time = end_timing(start, end)
+        #time_s = step_time / 1000.
+        #self.tot_step_time += (1 / self.frac_time_perception) * time_s
         self.steps_since_frame += 1
-
+        step_time = -1
         return losses, step_time
 
     # Visualisation methods -----------------------------------
@@ -1510,7 +1518,7 @@ class Trainer():
         sdf_viz = (sdf_viz * 255).astype(np.uint8)[..., :3]
         sdf_viz = sdf_viz.reshape(*grid_shape, 3)
         sdf_viz = [
-            cv2.resize(np.take(sdf_viz, i, self.up_ix), im_size[::-1])
+            cv2.resize(np.take(sdf_viz, i, self.up_ix), tuple(im_size[::-1]))
             for i in range(n_slices)
         ]
         slices["pred_sdf"] = sdf_viz
