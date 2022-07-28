@@ -55,7 +55,10 @@ def get_batch_data(
     indices_w = indices_w[mask_valid_depth]
 
     T_WC_sample = T_WC_batch[indices_b]
-    dirs_C_sample = dirs_C[0, indices_h, indices_w, :].view(-1, 3)
+    if dirs_C.shape[0] == 1: # Accounts for case when all frames use the same camera
+        dirs_C_sample = dirs_C[0, indices_h, indices_w, :].view(-1, 3)
+    else:
+        dirs_C_sample = dirs_C[indices_b, indices_h, indices_w, :].view(-1, 3)
 
     masks = None
     if get_masks:

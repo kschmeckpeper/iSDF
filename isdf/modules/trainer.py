@@ -545,8 +545,8 @@ class Trainer():
 
         self.frames.add_frame_data(data, replace)
 
-        if self.last_is_keyframe:
-            print("New keyframe. KF ids:", self.frames.frame_id[:-1])
+        #if self.last_is_keyframe:
+        #    print("New keyframe. KF ids:", self.frames.frame_id[:-data.depth_batch.shape[0]])
 
     def add_frame(self, frame_data):
         if self.last_is_keyframe:
@@ -560,9 +560,9 @@ class Trainer():
 
     # Keyframe methods ----------------------------------
 
-    def is_keyframe(self, T_WC, depth_gt):
+    def is_keyframe(self, T_WC, depth_gt, dirs_c):
         sample_pts = self.sample_points(
-            depth_gt, T_WC, n_rays=self.n_rays_is_kf, dist_behind_surf=0.8)
+            depth_gt, T_WC, n_rays=self.n_rays_is_kf, dirs_c_batch=dirs_c, dist_behind_surf=0.8)
 
         pc = sample_pts["pc"]
         z_vals = sample_pts["z_vals"]
@@ -585,14 +585,14 @@ class Trainer():
         below_th_prop = below_th.sum().float() / size_loss
         is_keyframe = below_th_prop.item() < self.kf_pixel_ratio
 
-        print(
-            "Proportion of loss below threshold",
-            below_th_prop.item(),
-            "for KF should be less than",
-            self.kf_pixel_ratio,
-            " ---> is keyframe:",
-            is_keyframe
-        )
+        #print(
+        #    "Proportion of loss below threshold",
+        #    below_th_prop.item(),
+        #    "for KF should be less than",
+        #    self.kf_pixel_ratio,
+        #    " ---> is keyframe:",
+        #    is_keyframe
+        #)
 
         return is_keyframe
 
@@ -660,6 +660,7 @@ class Trainer():
         depth_batch,
         T_WC_batch,
         norm_batch=None,
+        dirs_c_batch=None,
         active_loss_approx=None,
         n_rays=None,
         dist_behind_surf=None,
@@ -693,6 +694,9 @@ class Trainer():
             raise Exception('Active sampling not currently supported.')
 
         get_masks = active_loss_approx is None
+        #print("dirs_c_batch", dirs_c_batch.shape, self.dirs_C.shape)
+        dirs_c_batch = dirs_c_batch if dirs_c_batch is not None else self.dirs_C
+
         (
             dirs_C_sample,
             depth_sample,
@@ -705,13 +709,19 @@ class Trainer():
         ) = sample.get_batch_data(
             depth_batch,
             T_WC_batch,
-            self.dirs_C,
+            dirs_c_batch,
             indices_b,
             indices_h,
             indices_w,
             norm_batch=norm_batch,
             get_masks=get_masks,
         )
+        #print("dirs_c_sample", dirs_C_sample.shape)
+        #if dirs_c_batch.shape[0] > 1:# is not None:
+        if dirs_C_sample.shape[0] == 0:
+            from manipulathor_utils.debugger_util import ForkedPdb; ForkedPdb().set_trace()
+        #    print("dirs c batch", dirs_c_batch.shape, self.dirs_C.shape, dirs_C_sample.shape, depth_sample.shape)
+        #dirs_C_sample = dirs_c_batch if dirs_c_batch is not None else dirs_C_sample
 
         max_depth = depth_sample + dist_behind_surf
         pc, z_vals = sample.sample_along_rays(
@@ -939,9 +949,13 @@ class Trainer():
 
         depth_batch = depth_batch[idxs]
         T_WC_select = T_WC_batch[idxs]
+        if self.frames.dirs_c_batch is not None:
+            dirs_c_batch = self.frames.dirs_c_batch[idxs]
+        else:
+            dirs_c_batch = None
 
         sample_pts = self.sample_points(
-            depth_batch, T_WC_select, norm_batch=norm_batch)
+            depth_batch, T_WC_select, dirs_c_batch=dirs_c_batch, norm_batch=norm_batch)
         self.active_pixels = {
             'indices_b': sample_pts['indices_b'],
             'indices_h': sample_pts['indices_h'],
@@ -1479,6 +1493,28 @@ class Trainer():
                 scene, im_pose, tm_pose=True)
             cv2.imwrite(filename[:-4] + ".png", im[..., :3][..., ::-1])
 
+    def compute_slices_rotated(
+        self, pc, agent_xyz, agent_rot):
+        
+        with torch.set_grad_enabled(False):
+            grid_shape = pc.shape[:-1]
+            n_slices = grid_shape[self.up_ix]
+
+            pc = pc.reshape(-1, 3)
+
+            cos = torch.cos(torch.deg2rad(-agent_rot))
+            sin = torch.sin(torch.deg2rad(-agent_rot))
+            pc_rot = torch.empty_like(pc)
+            pc_rot[:, 0] = cos * pc[:, 0] - sin * pc[:, 2]
+            pc_rot[:, 1] = pc[:, 1]
+            pc_rot[:, 2] = sin * pc[:, 0] + cos * pc[:, 2]
+            pc = pc_rot
+            pc = pc + agent_xyz
+
+            sdf = fc_map.chunks(pc, self.chunk_size, self.sdf_map)
+            sdf = sdf.detach()
+        return sdf.reshape(*grid_shape)
+
     def compute_slices(
         self, z_ixs=None, n_slices=6,
         include_gt=False, include_diff=False, include_chomp=False,
@@ -1513,7 +1549,9 @@ class Trainer():
 
         with torch.set_grad_enabled(False):
             sdf = fc_map.chunks(pc, self.chunk_size, self.sdf_map)
-            sdf = sdf.detach().cpu().numpy()
+            sdf = sdf.detach()#.cpu().numpy()
+        return sdf.reshape(*grid_shape)
+        from manipulathor_utils.debugger_util import ForkedPdb; ForkedPdb().set_trace()
         sdf_viz = cmap.to_rgba(sdf.flatten(), alpha=1., bytes=False)
         sdf_viz = (sdf_viz * 255).astype(np.uint8)[..., :3]
         sdf_viz = sdf_viz.reshape(*grid_shape, 3)
@@ -1619,9 +1657,9 @@ class Trainer():
                             im = im.astype(np.uint8) / 255
                             im = cv2.line(
                                 im,
-                                traj_td[j][::-1],
-                                traj_td[j + 1][::-1],
-                                [1., 0., 0.], 2)
+                                tuple(traj_td[j][::-1]),
+                                tuple(traj_td[j + 1][::-1]),
+                                (1., 0., 0.), 2)
                             im = (im * 255).astype(np.uint8)
                 for (p, ang) in zip(cam_td, angs):
                     draw.draw_agent(

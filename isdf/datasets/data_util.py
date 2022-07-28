@@ -22,6 +22,7 @@ class FrameData:
         frame_avg_losses=None,
         T_WC_track=None,
         T_WC_gt=None,
+        dirs_c_batch=None,
     ):
         super(FrameData, self).__init__()
 
@@ -32,6 +33,7 @@ class FrameData:
         self.depth_batch_np = depth_batch_np
         self.T_WC_batch = T_WC_batch
         self.T_WC_batch_np = T_WC_batch_np
+        self.dirs_c_batch = dirs_c_batch
 
         self.normal_batch = normal_batch
         self.frame_avg_losses = frame_avg_losses
@@ -63,6 +65,9 @@ class FrameData:
             self.T_WC_batch, data.T_WC_batch, replace)
         self.T_WC_batch_np = expand_data(
             self.T_WC_batch_np, data.T_WC_batch_np, replace)
+
+        self.dirs_c_batch = expand_data(
+            self.dirs_c_batch, data.dirs_c_batch, replace)
 
         self.normal_batch = expand_data(
             self.normal_batch, data.normal_batch, replace)
@@ -97,7 +102,9 @@ def expand_data(batch, data, replace=False):
         if replace is False:
             batch = cat_fn((batch, data))
         else:
-            batch[-1] = data[0]
+            # Assumes that the input data always comes in sets of the same size
+            batch[-data.shape[0]:] = data
+            #batch[-1] = data[0]
 
     return batch
 
