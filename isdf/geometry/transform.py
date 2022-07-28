@@ -182,6 +182,11 @@ def pointcloud_from_depth_torch(
         np.arange(cols, step=skip), np.arange(rows, step=skip), sparse=True)
     c = torch.from_numpy(c).to(depth.device)
     r = torch.from_numpy(r).to(depth.device)
+#    c = torch.arange(start=0, end=cols, step=skip, device=depth.device).unsqueeze(0)
+#    r = torch.arange(start=0, end=rows, step=skip, device=depth.device).unsqueeze(1)
+#    assert(torch.all(c == c2) and c.shape == c2.shape)
+#    assert(torch.all(r == r2) and r.shape == r2.shape)
+
     depth = depth[::skip, ::skip]
     valid = ~torch.isnan(depth)
     nan_tensor = torch.FloatTensor([float('nan')]).to(depth.device)
@@ -234,13 +239,14 @@ def estimate_pointcloud_normals(points):
     )
 
     lookups = torch.tensor(
-        [(-d, 0), (-d, d), (0, d), (d, d), (d, 0), (d, -d), (0, -d), (-d, -d)]
-    ).to(points.device)
+        [(-d, 0), (-d, d), (0, d), (d, d), (d, 0), (d, -d), (0, -d), (-d, -d)],
+        device=points.device
+    )
 
-    j, i = torch.meshgrid(torch.arange(W), torch.arange(H))
-    i = i.transpose(0, 1).to(points.device)
-    j = j.transpose(0, 1).to(points.device)
-    k = torch.arange(8).to(points.device)
+    j, i = torch.meshgrid(torch.arange(W, device=points.device), torch.arange(H, device=points.device))
+    i = i.transpose(0, 1)
+    j = j.transpose(0, 1)
+    k = torch.arange(8, device=points.device)
 
     i1 = i + d
     j1 = j + d
