@@ -91,7 +91,7 @@ class Trainer():
                 self.load_gt_sdf()
         self.cosSim = torch.nn.CosineSimilarity(dim=-1, eps=1e-6)
 
-        self.use_amp = False
+        self.use_amp = True
         self.scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
 
     # Init functions ---------------------------------------
@@ -970,15 +970,15 @@ class Trainer():
 
             self.frames.frame_avg_losses[idxs] = frame_avg_loss
 
-            self.scaler.scale(total_loss).backward()
-            self.scaler.step(self.optimiser)
-            self.scaler.update()
-            #total_loss.backward()
-            #self.optimiser.step()
-            for param_group in self.optimiser.param_groups:
-                params = param_group["params"]
-                for param in params:
-                    param.grad = None
+        self.scaler.scale(total_loss).backward()
+        self.scaler.step(self.optimiser)
+        self.scaler.update()
+        #total_loss.backward()
+        #self.optimiser.step()
+        for param_group in self.optimiser.param_groups:
+            params = param_group["params"]
+            for param in params:
+                param.grad = None
 
         # if self.do_active:
         #     sample_pts = self.sample_points(
