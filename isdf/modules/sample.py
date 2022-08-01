@@ -161,12 +161,13 @@ def sample_along_rays(
         if gt_depth is not None and n_surf_samples > 0:
             surface_z_vals = gt_depth
             offsets = torch.normal(
-                torch.zeros(gt_depth.shape[0], n_surf_samples - 1), 0.1
-            ).to(z_vals.device)
+                torch.zeros(gt_depth.shape[0], n_surf_samples - 1,
+                            device=z_vals.device), 0.1
+            )
             near_surf_z_vals = gt_depth[:, None] + offsets
             if not isinstance(min_depth, torch.Tensor):
-                min_depth = torch.full(near_surf_z_vals.shape, min_depth).to(
-                    z_vals.device)[..., 0]
+                min_depth = torch.full(near_surf_z_vals.shape, min_depth,
+                                       device=z_vals.device)[..., 0]
             near_surf_z_vals = torch.clamp(
                 near_surf_z_vals,
                 min_depth[:, None],
