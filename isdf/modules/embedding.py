@@ -65,11 +65,11 @@ class PostionalEncoding(torch.nn.Module):
             self.min_deg, self.max_deg, self.n_freqs)
         self.embedding_size = 2 * self.dirs.shape[1] * self.n_freqs + 3
 
-        print(
-            "Icosahedron embedding with periods:",
-            (2 * np.pi) / (frequency_bands * self.scale),
-            " -- embedding size:", self.embedding_size
-        )
+        #print(
+        #    "Icosahedron embedding with periods:",
+        #    (2 * np.pi) / (frequency_bands * self.scale),
+        #    " -- embedding size:", self.embedding_size
+        #)
 
     def vis_embedding(self):
         x = torch.linspace(0, 5, 640)

@@ -9,6 +9,6 @@ from . import draw
 
 from . import display
 
-from . import sdf_viewer
+#from . import sdf_viewer
 
 from . import draw3D
