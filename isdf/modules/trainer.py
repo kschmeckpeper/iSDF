@@ -91,6 +91,9 @@ class Trainer():
                 self.load_gt_sdf()
         self.cosSim = torch.nn.CosineSimilarity(dim=-1, eps=1e-6)
 
+        self.use_amp = False
+        self.scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
+
     # Init functions ---------------------------------------
 
     def get_latest_frame_id(self):
@@ -935,44 +938,47 @@ class Trainer():
 
     def step(self):
         #start, end = start_timing()
+        with torch.cuda.amp.autocast(enabled=self.use_amp):
+            depth_batch = self.frames.depth_batch
+            T_WC_batch = self.frames.T_WC_batch
+            norm_batch = self.frames.normal_batch if self.do_normal else None
 
-        depth_batch = self.frames.depth_batch
-        T_WC_batch = self.frames.T_WC_batch
-        norm_batch = self.frames.normal_batch if self.do_normal else None
+            if len(self.frames) > self.window_size and self.incremental:
+                idxs = self.select_keyframes()
+                # print("selected frame ids", self.frames.frame_id[idxs[:-1]])
+            else:
+                idxs = np.arange(T_WC_batch.shape[0])
+            self.active_idxs = idxs
 
-        if len(self.frames) > self.window_size and self.incremental:
-            idxs = self.select_keyframes()
-            # print("selected frame ids", self.frames.frame_id[idxs[:-1]])
-        else:
-            idxs = np.arange(T_WC_batch.shape[0])
-        self.active_idxs = idxs
+            depth_batch = depth_batch[idxs]
+            T_WC_select = T_WC_batch[idxs]
+            if self.frames.dirs_c_batch is not None:
+                dirs_c_batch = self.frames.dirs_c_batch[idxs]
+            else:
+                dirs_c_batch = None
 
-        depth_batch = depth_batch[idxs]
-        T_WC_select = T_WC_batch[idxs]
-        if self.frames.dirs_c_batch is not None:
-            dirs_c_batch = self.frames.dirs_c_batch[idxs]
-        else:
-            dirs_c_batch = None
+            sample_pts = self.sample_points(
+                depth_batch, T_WC_select, dirs_c_batch=dirs_c_batch, norm_batch=norm_batch)
+            self.active_pixels = {
+                'indices_b': sample_pts['indices_b'],
+                'indices_h': sample_pts['indices_h'],
+                'indices_w': sample_pts['indices_w'],
+            }
 
-        sample_pts = self.sample_points(
-            depth_batch, T_WC_select, dirs_c_batch=dirs_c_batch, norm_batch=norm_batch)
-        self.active_pixels = {
-            'indices_b': sample_pts['indices_b'],
-            'indices_h': sample_pts['indices_h'],
-            'indices_w': sample_pts['indices_w'],
-        }
+            total_loss, losses, active_loss_approx, frame_avg_loss = \
+                self.sdf_eval_and_loss(sample_pts, do_avg_loss=True)
 
-        total_loss, losses, active_loss_approx, frame_avg_loss = \
-            self.sdf_eval_and_loss(sample_pts, do_avg_loss=True)
+            self.frames.frame_avg_losses[idxs] = frame_avg_loss
 
-        self.frames.frame_avg_losses[idxs] = frame_avg_loss
-
-        total_loss.backward()
-        self.optimiser.step()
-        for param_group in self.optimiser.param_groups:
-            params = param_group["params"]
-            for param in params:
-                param.grad = None
+            self.scaler.scale(total_loss).backward()
+            self.scaler.step(self.optimiser)
+            self.scaler.update()
+            #total_loss.backward()
+            #self.optimiser.step()
+            for param_group in self.optimiser.param_groups:
+                params = param_group["params"]
+                for param in params:
+                    param.grad = None
 
         # if self.do_active:
         #     sample_pts = self.sample_points(
